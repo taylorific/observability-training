@@ -9,8 +9,11 @@
   },
   "dependencies": {
     "@slidev/cli": "^51.8.2",
-    "@slidev/theme-default": "latest",
-    "@slidev/theme-seriph": "latest",
+    "@slidev/theme-default": "^0.25.0",
+    "@slidev/theme-seriph": "^0.25.0",
     "vue": "^3.5.16"
+  },
+  "devDependencies": {
+    "playwright-chromium": "^1.53.0"
   }
 }
