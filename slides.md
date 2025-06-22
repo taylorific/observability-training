@@ -904,3 +904,31 @@ docker container run -it --rm \
   --mount type=bind,source="$(pwd)/prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
   docker.io/boxcutter/prometheus
 ```
+
+---
+layout: section
+---
+
+# Alertmanager
+
+<br>
+<br>
+<Link to="toc" title="Table of Contents"/>
+
+---
+hideInToc: true
+---
+
+---
+layout: section
+---
+
+# Loki
+
+<br>
+<br>
+<Link to="toc" title="Table of Contents"/>
+
+---
+hideInToc: true
+---
