@@ -134,6 +134,14 @@ This is a synthetic up metric that Prometheus records for every target. In this 
 `up{job="prometheus"}`
 
 ---
+hideInToc: true
+---
+
+# Cleanup
+
+Stop container with <key>CTRL</key>+<key>C</key>
+
+---
 layout: section
 ---
 
