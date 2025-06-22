@@ -233,18 +233,488 @@ layout: section
 hideInToc: true
 ---
 
----
-hideInToc: true
----
+```bash
+docker volume create prometheus-data
+
+docker network create monitoring
+```
 
 ---
 hideInToc: true
 ---
 
+```bash
+cat >prometheus.yml <<EOF
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+    - targets: ['localhost:9090']
+
+  - job_name: 'dynamic'
+    file_sd_configs:
+    - files:
+      - /etc/prometheus/targets.yml
+      - /etc/prometheus/targets.json
+      refresh_interval: 30s
+EOF
+```
+
 ---
 hideInToc: true
 ---
 
+```bash
+cat >targets.yml <<EOF
+- targets: [ 'node-exporter:9100' ]
+  labels:
+    job: 'node'
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container run -it --rm \
+  -d \
+  --name prometheus \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=bind,source="$(pwd)/targets.yml",target=/etc/prometheus/targets.yml,readonly \
+  --mount type=volume,source=prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container run -it --rm \
+  -d \
+  --name node-exporter \
+  -p 9100:9100 \
+  --network monitoring \
+  docker.io/boxcutter/node-exporter
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker volume create grafana-data
+```
+
+```bash
+docker container run -it --rm \
+  --name grafana \
+  -p 3000:3000 \
+  --network monitoring \
+  --mount type=volume,source=grafana-data,target=/var/lib/grafana,volume-driver=local \
+  docker.io/boxcutter/grafana-oss
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container stop node-exporter
+docker container stop prometheus
+```
+
+---
+layout: section
+---
+
+# Blackbox Exporter
+
+<br>
+<br>
+<Link to="toc" title="Table of Contents"/>
+
+---
+hideInToc: true
+---
+
+```bash
+The blackbox exporter uses the [multi-target exporter pattern](https://prometheus.io/docs/guides/multi-target-exporter/) to monitor the availability of multiple websites, APIs or network services from a single exporter instance.
+Multi-target exporters are used when you can't (or shouldn't) run an exporter directly on a device.
+```
+
+---
+hideInToc: true
+---
+
+```bash
+cat >blackbox.yml <<EOF
+modules:
+  http_2xx:
+    prober: http
+    http:
+      method: GET
+      preferred_ip_protocol: "ip4"
+
+  resolve_prometheus:
+    prober: dns
+    dns:
+      query_name: prometheus.io
+      query_type: A
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker network create monitoring
+```
+
+```bash
+docker container run -it --rm \
+  --name blackbox-exporter \
+  -p 9115:9115 \
+  --network monitoring \
+  docker.io/boxcutter/blackbox_exporter
+```
+
+---
+hideInToc: true
+---
+
+There is the usual `/metrics` endpoint for prometheus monitoring the health of the blackbox exporter service
+itself at http://localhost:9115/metrics. But this isn't the endpoint that you generally use with the blackbox
+exporter:
+
+```bash
+% curl 'localhost:9115/metrics'
+```
+
+---
+hideInToc: true
+---
+
+There is another endpoint called `/probe`. A probe can generate information for another target besides the
+blackbox exporter service itself. You specify a "target" and a "module" to be queried by a probe,
+configured in the `blackbox.yml` file.
+
+If you visit http://localhost:9115/ - you'll see that there are no recent probes yet. Probes only happen when
+something visits the `/probe` endpoint, specifying a "target" and "module". Let's do that now:
+
+```
+% curl 'localhost:9115/probe?target=prometheus.io&module=http_2xx'
+```
+
+---
+hideInToc: true
+---
+
+We can get prometheus to do the same kind probe trigger that we just did with curl. Here's
+what that configuration looks like:
+
+```
+cat >prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: blackbox
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+      target:
+        - prometheus.io
+    static_configs:
+      - targets:
+        - blackbox-exporter:9115
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container run -it --rm \
+  --mount type=bind,source="$(pwd)/prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --entrypoint promtool \
+  docker.io/boxcutter/prometheus check config prometheus.yml
+```
+
+```bash
+docker container run -it --rm \
+  -d \
+  --name prometheus \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  docker.io/boxcutter/prometheus
+```
+
+---
+hideInToc: true
+---
+
+
+Check http://localhost:9090/targets and verify that prometheus sent the probe successfully. It should
+say the target is up.
+
+Visit http://localhost:9090/query and perform queries for `probe_http_status_code` and `probe_http_duration_seconds`.
+
+```
+probe_http_status_code{instance="blackbox-exporter:9115", job="blackbox"}
+probe_http_duration_seconds{instance="blackbox-exporter:9115", job="blackbox", phase="connect"}
+```
+
+---
+hideInToc: true
+---
+
+So now we see that prometheus stores the result of a probe. There is a problem with our config. Note that the `instance`
+label shows `blackbox-exporter:9115`, which is correct. But we have no idea what the name of the host that was probed,
+in this case `prometheus.io`. We could look in the config file under the scrape config param to find this information,
+but then there's no way to query this information later in the database.
+
+We can fix this with relabeling. Here's what we need to know about relabeling to understand the upcoming config:
+
+1. All labels starting with `__` are dropped after the scrape. Most internal labels start with `__`
+2. There is an internal label `__address__` which is set by the targets under `static_configs` and whose value is the hostname
+   for the scrape request. By default it is later used to set the value for the label `instance`, which is attached to each
+   metric and tells you where the metrics came from.
+3. You can set custom labels to be scrape params that are defined with `__param_<name>`.
+
+
+---
+hideInToc: true
+---
+
+```bash
+cat >prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+        - 'http://prometheus.io'     # Target to probe with HTTP.
+        - 'https://prometheus.io'    # Target to probe with HTTPS.
+        - 'http://promlabs.com:8080' # Unreachable target to probe with HTTP on port 8080.
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115 # Blackbox exporter address.
+EOF
+```
+
+---
+layout: section
+---
+
+So what changed in this new config?
+
+The `target` is no longer included in the `params`:
+
+Old:
+```
+params:
+  module:
+    - http_2xx
+  target:
+    - prometheus.io
+```
+
+New:
+```
+params:
+  module:
+    - http_2xx
+```
+
+---
+layout: section
+---
+
+This lets us include multiple targets under `static_configs` instead of just one:
+
+Old:
+```
+static_configs:
+  - targets:
+    - blackbox-exporter:9115
+```
+
+New:
+```
+static_configs:
+  - targets:
+    - 'http://prometheus.io'     # Target to probe with HTTP.
+    - 'https://prometheus.io'    # Target to probe with HTTPS.
+    - 'http://promlabs.com:8080' # Unreachable target to probe with HTTP on port 8080.
+```
+
+---
+layout: section
+---
+
+And now we have a bunch of new relabeling rules under `relabel_configs`:
+
+```
+relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+  - source_labels: [__param_target]
+    target_label: instance
+  - target_label: __address__
+    replacement: blackbox-exporter:9115 # Blackbox exporter address.
+```
+
+---
+layout: section
+---
+
+Before applying the relabeling rules, the request Prometheus would make would look like: `http://prometheus.io/probe?modules=http_2xx`.
+After relabeling, the request would look like this: `http://blackbox-exporter:9115/probe?target=http://prometheus.io&module=http_2xx`.
+
+The relabel rules are applied in sequence. First we take the values from the label `__address__`.
+This comes from `targets` and write them to a new label called `__param_target`.
+
+After this our imagined Prometheus request URI has now a target parameter: "http://prometheus.io/probe?target=http://prometheus.io&module=http_2xx".
+
+---
+layout: section
+---
+
+First we take the values from the label __address__ (which contain the values from targets) and write them to a new label __param_target which will add a parameter target to the Prometheus scrape requests:
+
+```
+relabel_configs:
+  - source_labels: [__address__]
+    target_label: __param_target
+```
+
+After this, the first Prometheus request URI has now a target parameter: `http://prometheus.io/probe?target=http://prometheus.io&module=http_2xx`.
+
+Next we take the values from the label `__param_target` and create a label instance with the values.
+
+```
+relabel_configs:
+  - source_labels: [__param_target]
+    target_label: instance
+```
+
+This relabel config won't change the request, but the metrics that come back from the request will now have a label `instance="http://prometheus.io"`.
+This lets us determine which host was probed.
+
+---
+layout: section
+---
+
+And finally, we write the value `blackbox-exporter:9115` to the label `__address__` (now that we have
+saved a copy in the `__param_target`). This is the hostname and port where prometheus will send
+the probe request: `http://blackbox-exporter:9115/probe?target=http://prometheus.io&module=http_2xx`
+
+```
+relabel_configs:
+  - target_label: __address__
+    replacement: blackbox-exporter:9115
+```
+
+To make things easier to copy 
+
+```
+relabel_configs:
+  - source_labels: []
+    target_label: instance
+    replacement: localhost:9115
+```
+
+---
+layout: section
+---
+
+```
+cat >prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+        - 'http://prometheus.io'     # Target to probe with HTTP.
+        - 'https://prometheus.io'    # Target to probe with HTTPS.
+        - 'http://promlabs.com:8080' # Unreachable target to probe with HTTP on port 8080.
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115 # Blackbox exporter address.
+EOF
+```
+
+---
+layout: section
+---
+
+```
+docker container run -it --rm \
+  --mount type=bind,source="$(pwd)/prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --entrypoint promtool \
+  docker.io/boxcutter/prometheus check config prometheus.yml
+```
+
+```
+docker container run -it --rm \
+  -d \
+  --name prometheus \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus
+```
+
+Now if you go to and query `probe_http_status_code` you should see the address of the URI that was
+probed instead of `blackbox-exporter:9115`, but 
+
+```
+probe_http_status_code{instance="https://prometheus.io", job="blackbox"}
+```
+
+And for `probe_http_duration_seconds` you're still seeing valid data, so it's using `blackbox-exporter:9115`
+to send the probe, and not the host listed in the instance (since it shouldn't have blackbox exporter
+installed there).
+
+---
+layout: section
+---
+
+```
+docker stop prometheus
+```
 
 ---
 layout: section
