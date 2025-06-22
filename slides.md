@@ -139,7 +139,7 @@ hideInToc: true
 
 # Cleanup
 
-Stop container with <key>CTRL</key>+<key>C</key>
+Stop Prometheus container with <kbd>ctrlL</kbd>+<kbd>c</kbd>
 
 ---
 layout: section
