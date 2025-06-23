@@ -98,7 +98,11 @@ docker container run -it --rm \
 docker container run -it --rm \
   -p 9090:9090 \
   --mount type=bind,source="$(pwd)/prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
-  docker.io/boxcutter/prometheus
+  docker.io/boxcutter/prometheus \
+    --storage.tsdb.path=/var/lib/prometheus/data \
+    --storage.tsdb.retention.time=30d \
+    --storage.tsdb.retention.size=20GB \
+    --web.listen-address=:9090
 ```
 
 ---
@@ -132,6 +136,67 @@ This expression show the number of samples per second that Prometheus is storing
 This is a synthetic up metric that Prometheus records for every target. In this case it is scoped to the prometheus job:
 
 `up{job="prometheus"}`
+
+---
+hideInToc: true
+---
+
+- **Pull-based** - Endpoints don't push out data, instead Prometheus scrapes endpoints to fetch data
+- The **consumer** (Prometheus) controls the timing, not the producer
+- Cannot set the scrape interval to match the rate at which you collect metrics
+- Data is collected on a timer, metrics **do not** flow immediately when published
+- Precision is based on best-effort, periodic sampling. It is **not** intended for high-frequency, real-time or sub-second metrics
+- Metrics collection is passive, not active - Prometheus chooses when to pull the data
+- Not intended to collect every event — it’s about compact summaries of what’s happening over time.
+
+---
+hideInToc: true
+---
+
+1. It Collects State, Not Raw Streams
+  - Prometheus metrics are like “snapshots” of current counters or gauges.
+  - Example: Instead of storing every sensor message, it stores `sensor_msgs_received_total 145723`.
+
+ Analogy: “It’s like glancing at a dashboard every 15 seconds and writing down what the odometer says — not recording the entire drive.”
+
+2. It’s Pull-Based and Bounded
+  -You define how often Prometheus collects (scrape_interval), e.g., every 15s.
+  - It only collects what’s exposed — usually a compact flat list of counters and gauges.
+
+This puts an upper bound on CPU, memory, and I/O used by monitoring — it won’t
+run wild like logs or bag files can.
+
+---
+hideInToc: true
+---
+
+3. It Stores Only Numbers and Labels
+  - Prometheus stores structured numeric time series: a float64 value and a timestamp, with optional key/value tags (labels).
+  - It does not store logs, strings, or individual events.
+
+This is why Prometheus databases stay compact — even thousands of time series can be held in a few hundred MB.
+
+4. It Uses Time and Space Efficient Storage (TSDB)
+  - Prometheus uses its own highly optimized time-series database:
+  - Stores data in chunks
+  - Compresses samples using delta and XOR compression
+  - Avoids duplication of labels
+  - Prunes old data automatically (--storage.tsdb.retention.time)
+
+ Most people can store weeks of metrics in a few GB, even across hundreds of machines.
+
+
+
+---
+hideInToc: true
+---
+
+Prometheus is designed to collect summaries of system state over time, not
+high-frequency raw data.
+It stores only numeric values at fixed intervals and compresses them
+efficiently, so it’s great for monitoring trends, spotting failures, and
+diagnosing performance issues — without overwhelming your system with logging
+or bandwidth.
 
 ---
 hideInToc: true
@@ -216,7 +281,44 @@ docker container run -it --rm \
   --name node-exporter \
   -p 9100:9100 \
   --network monitoring \
-  docker.io/boxcutter/node-exporter
+  docker.io/boxcutter/node-exporter \
+    --collector.systemd \
+    --collector.processes \
+    --no-collector.infiniband \
+    --no-collector.nfs \
+    --web.listen-address=:9090
+```
+
+---
+hideInToc: true
+---
+
+# Textfile collector
+
+https://www.robustperception.io/using-the-textfile-collector-from-a-shell-script/
+
+```bash
+#!/bin/bash
+
+# Adjust as needed.
+TEXTFILE_COLLECTOR_DIR=/var/lib/node_exporter/textfile_collector/
+# Note the start time of the script.
+START="$(date +%s)"
+
+# Your code goes here.
+sleep 10
+
+# Write out metrics to a temporary file.
+END="$(date +%s)"
+cat << EOF > "$TEXTFILE_COLLECTOR_DIR/myscript.prom.$$"
+myscript_duration_seconds $(($END - $START))
+myscript_last_run_seconds $END
+EOF
+
+# Rename the temporary file atomically.
+# This avoids the node exporter seeing half a file.
+mv "$TEXTFILE_COLLECTOR_DIR/myscript.prom.$$" \
+  "$TEXTFILE_COLLECTOR_DIR/myscript.prom"
 ```
 
 ---
