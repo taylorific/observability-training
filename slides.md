@@ -325,6 +325,60 @@ mv "$TEXTFILE_COLLECTOR_DIR/myscript.prom.$$" \
 hideInToc: true
 ---
 
+# Create a systemd service unit
+
+```bash
+# /etc/systemd/system/my_script.service
+[Unit]
+Description=Run my bash script
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/my_script.sh
+```
+
+---
+hideInToc: true
+---
+
+```bash
+# /etc/systemd/system/my_script.timer
+[Unit]
+Description=Timer for my_script.sh
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+That OnCalendar=*:0/15 means: every 15 minutes. You can use any systemd time expression, e.g.:
+	•	daily → once a day
+	•	hourly → once an hour
+	•	Mon..Fri 09:00 → weekdays at 9am
+
+---
+hideInToc: true
+---
+
+Enable and start the timer
+```bash
+sudo systemctl daemon-reexec         # safest way to reload after edits
+sudo systemctl daemon-reload
+sudo systemctl enable --now my_script.timer
+```
+
+Check that it works
+- See timer status: systemctl list-timers --all
+- See last run: systemctl status my_script.service
+- See logs: journalctl -u my_script.service
+
+---
+hideInToc: true
+---
+
 ```bash
 docker container stop prometheus
 ```
