@@ -509,10 +509,10 @@ layout: section
 hideInToc: true
 ---
 
-```bash
-The blackbox exporter uses the [multi-target exporter pattern](https://prometheus.io/docs/guides/multi-target-exporter/) to monitor the availability of multiple websites, APIs or network services from a single exporter instance.
-Multi-target exporters are used when you can't (or shouldn't) run an exporter directly on a device.
-```
+The blackbox exporter uses the [multi-target exporter pattern](https://prometheus.io/docs/guides/multi-target-exporter/)
+to monitor the availability of multiple websites, APIs or network services from a
+single exporter instance. Multi-target exporters are used when you can't (or
+shouldn't) run an exporter directly on a device.
 
 ---
 hideInToc: true
