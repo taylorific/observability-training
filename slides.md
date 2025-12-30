@@ -1076,6 +1076,136 @@ docker container run -it --rm \
 layout: section
 ---
 
+# Prometheus robot fleet dashboard with flaky networks
+
+<br>
+<br>
+<Link to="toc" title="Table of Contents"/>
+
+---
+hideInToc: true
+---
+
+If the internet link is flaky, you want two complementary signals:
+	1.	“Is the robot itself up?” (local liveness)
+	2.	“Can I reach it right now?” (end-to-end reachability)
+
+Prometheus by itself mostly measures (2) unless you design for (1).
+
+---
+hideInToc: true
+---
+
+# Record “robot up” locally, then forward when the link returns
+
+Run Prometheus on each robot (or at least a tiny agent that speaks remote_write), scrape node_exporter locally over localhost, and remote_write to your central Prometheus when it can.
+
+Why it works: even if the robot is offline from the internet, local Prometheus still records that the computer was up; when the link comes back it ships the backlog.
+
+What to use
+- Full Prometheus on-robot + remote_write
+- Or an agent (e.g., Grafana Agent / Alloy / VictoriaMetrics vmagent / OTel Collector with Prom remote_write) if you don’t want full Prometheus per robot
+
+---
+hideInToc: true
+---
+
+# Split “upness” into scrape success vs host boot health
+
+A. Scrape success: up
+
+Prometheus already provides:
+  - up{job="node-exporter", instance="robot-123"} = 1 when scrape succeeds, 0 when it fails.
+
+This is reachability, not necessarily “the robot is down”.
+
+B. Host boot health: node_exporter + time drift
+
+From node_exporter, use:
+  - node_boot_time_seconds (changes only on reboot)
+  - node_time_seconds (current time)
+  - node_uptime_seconds (if enabled/available; otherwise derive from boot time)
+
+In your central Prometheus, record:
+  - “Last time we got any sample from this robot”
+  - “Last observed boot time” (to detect reboots)
+
+Even if you can’t get local buffering, this lets you distinguish:
+  - “robot unreachable” vs “robot rebooted recently” vs “robot stable but link flaky”
+
+---
+hideInToc: true
+---
+
+# Track “last seen” explicitly (works even without buffering)
+
+Create a recording rule that turns scrapes into a clean “last seen timestamp”:
+  - For each robot/instance, compute the most recent sample time from a stable metric (boot time is good)
+  - Then alert if “now - last_seen > threshold”
+
+This is more actionable than raw up==0 because it naturally debounces brief blips.
+
+What you’ll alert on:
+  - “Not seen for 5 minutes” (warning)
+  - “Not seen for 30 minutes” (critical)
+
+And separately:
+  - “Rebooted within last 10 minutes” (info/warn)
+
+---
+hideInToc: true
+---
+
+# Add an “internet health” probe from the robot side
+
+For flaky internet, you also want: “Robot is up, but internet is bad.”
+
+Options:
+  - Run blackbox_exporter on the robot to probe:
+  - DNS resolution
+  - HTTPS to a known endpoint (your backend or a public endpoint you control)
+  - ICMP ping to a few anchors
+  - Or a lightweight cron/script that updates a textfile collector metric with:
+      - packet loss %
+	  - latency
+	  - default route present
+	  - Wi-Fi RSSI / cellular signal metrics
+
+Then you can classify outages:
+  - robot down (no local metrics even on-robot)
+  - robot up but uplink down (local metrics show poor internet)
+  - robot up and internet OK, but your central can’t reach (routing/firewall)
+
+---
+hideInToc: true
+---
+
+# Make identity stable so you don’t lose continuity
+
+For a fleet, ensure your series identity doesn’t change when IPs change:
+  - Set instance to something stable (robot_id + hw serial)
+  - Add labels like robot_id, site, fleet, role
+
+This makes “last seen” and “uptime” meaningful across network changes.
+
+---
+hideInToc: true
+---
+
+# Practical alerting strategy for flaky links
+
+Don’t page on up == 0 immediately.
+
+Use a multi-stage approach:
+  - Warning: unreachable for 5–10 minutes
+  - Critical: unreachable for 30–60 minutes
+  - Info: reboot detected (boot time changed)
+  - Correlate: if robot reports uplink loss at same time, downgrade severity
+
+---
+layout: section
+---
+
 # Alertmanager
 
 <br>
