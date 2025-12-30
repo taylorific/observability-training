@@ -31,7 +31,7 @@ themeConfig:
   paginationPagesDisabled: [1]
 ---
 
-# Observability
+# Observability Training
 
 ##### Mischa Taylor | 📧 <taylor@linux.com>
 
@@ -99,7 +99,8 @@ docker container run -it --rm \
   -p 9090:9090 \
   --mount type=bind,source="$(pwd)/prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
   docker.io/boxcutter/prometheus \
-    --storage.tsdb.path=/var/lib/prometheus/data \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
     --storage.tsdb.retention.time=30d \
     --storage.tsdb.retention.size=20GB \
     --web.listen-address=:9090
@@ -204,7 +205,7 @@ hideInToc: true
 
 # Cleanup
 
-Stop Prometheus container with <kbd>ctrlL</kbd>+<kbd>c</kbd>
+Stop Prometheus container with <kbd>ctrl</kbd>+<kbd>c</kbd>
 
 ---
 layout: section
