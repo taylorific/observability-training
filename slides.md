@@ -510,10 +510,9 @@ hideInToc: true
 ---
 
 The blackbox exporter uses the [multi-target exporter pattern](https://prometheus.io/docs/guides/multi-target-exporter/)
-to monitor the availability of multiple websites, APIs or network services from a
-single exporter instance.
+to monitor the availability of multiple entities from a single instance.
 
-Multi-target exporters are used when you can't (orshouldn't) run an exporter
+Multi-target exporters are used when you can't (or shouldn't) run an exporter
 directly on a device.
 
 ---
