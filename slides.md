@@ -130,11 +130,11 @@ This expression reports the resident memory usage of Prometheus itself in mebiby
 hideInToc: true
 ---
 
-This expression show the number of samples per second that Prometheus is storing, as averaged over a 1-minute window:
+This expression shows the number of samples per second stored by Prometheus, as averaged over a 1-minute window:
 
 `rate(prometheus_tsdb_head_samples_appended_total{job="prometheus"}[1m])`
 
-This is a synthetic up metric that Prometheus records for every target. In this case it is scoped to the prometheus job:
+This is a synthetic up metric that Prometheus records for every target. In is scoped to the prometheus job:
 
 `up{job="prometheus"}`
 
@@ -287,7 +287,7 @@ docker container run -it --rm \
     --collector.processes \
     --no-collector.infiniband \
     --no-collector.nfs \
-    --web.listen-address=:9090
+    --web.listen-address=:9100
 ```
 
 ---
@@ -384,6 +384,12 @@ hideInToc: true
 docker container stop prometheus
 ```
 
+```bash
+docker volume rm prometheus-data
+
+docker network rm monitoring
+```
+
 ---
 layout: section
 ---
@@ -478,13 +484,43 @@ docker volume create grafana-data
 ```
 
 ```bash
+# https://grafana.com/docs/grafana/latest/setup-grafana/installation/docker/
 docker container run -it --rm \
   --name grafana \
   -p 3000:3000 \
   --network monitoring \
+  --env GF_SECURITY_ADMIN_USER=admin \
+  --env GF_SECURITY_ADMIN_PASSWORD=Superseekret63 \
+  --env GF_AUTH_ANONYMOUS_ENABLED=true \
   --mount type=volume,source=grafana-data,target=/var/lib/grafana,volume-driver=local \
-  docker.io/boxcutter/grafana-oss
+  docker.io/grafana/grafana
 ```
+
+---
+hideInToc: true
+---
+
+# Set up Prometheus as a Data Source in Grafana
+
+Navigate to Connections → Data Sources → Add data source in the left side panel.
+Choose Prometheus
+Prometheus server url: http://prometheus:9090
+Click on the "Save & test" button
+
+---
+hideInToc: true
+---
+Navigate to Dashboards > New > Import
+Paste in 1860 and click on the "Load" button
+
+---
+hideInToc: true
+---
+
+# Create a New Dashboard and Panel
+
+Navigate to Dashboards → New Dashboard → Click on the Add Visualization button
+Select Prometheus from the data source dropdown
 
 ---
 hideInToc: true
@@ -493,6 +529,11 @@ hideInToc: true
 ```bash
 docker container stop node-exporter
 docker container stop prometheus
+```
+
+```bash
+docker volume rm prometheus-data
+docker network rm monitoring
 ```
 
 ---
@@ -1200,6 +1241,10 @@ Use a multi-stage approach:
   - Critical: unreachable for 30–60 minutes
   - Info: reboot detected (boot time changed)
   - Correlate: if robot reports uplink loss at same time, downgrade severity
+
+---
+hideInToc: true
+---
 
 ---
 layout: section
