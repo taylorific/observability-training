@@ -1244,6 +1244,179 @@ Use a multi-stage approach:
   - Correlate: if robot reports uplink loss at same time, downgrade severity
 
 ---
+hideInToc: true
+---
+
+```
+docker volume create robot-prometheus-data
+docker volume create central-prometheus-data
+
+docker network create monitoring
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container run -it --rm \
+  -d \
+  --name robot001-node-exporter \
+  -p 9100:9100 \
+  --network monitoring \
+  docker.io/boxcutter/node-exporter
+```
+
+---
+hideInToc: true
+---
+
+```
+# robot-prometheus.yml
+cat >robot-prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+  external_labels:
+    robot_id: robot001
+    fleet: alpha
+    site: field
+
+scrape_configs:
+  # Signal 1: "Robot is up" (local scrape; works even if WAN is down)
+  - job_name: robot-node-exporter
+    static_configs:
+      - targets: ["robot001-node-exporter:9100"]  # node_exporter on the robot
+        labels:
+          role: compute
+EOF
+```
+
+```bash
+docker container run -it --rm \
+  --mount type=bind,source="$(pwd)/robot-prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --entrypoint promtool \
+  docker.io/boxcutter/prometheus check config prometheus.yml
+```
+
+---
+hideInToc: true
+---
+
+```
+docker container run -it --rm \
+  -d \
+  --name robot001-prometheus \
+  -p 9091:9091 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/robot-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
+    --web.listen-address=:9091
+```
+
+---
+hideInToc: true
+---
+
+```
+# central-prometheus.yml
+cat >central-prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+  external_labels:
+    prometheus: central
+    site: hq
+
+scrape_configs:
+  # Signal 2: end-to-end reachability from HQ/site to robot
+  - job_name: robot-reachability
+    scrape_interval: 15s
+    static_configs:
+      - targets:
+          # Probe the robot's node_exporter *over the network path you care about
+          - robot001-node-exporter:9100
+        labels:
+          fleet: alpha
+EOF
+```
+
+```bash
+docker container run -it --rm \
+  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --entrypoint promtool \
+  docker.io/boxcutter/prometheus check config prometheus.yml
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container run -it --rm \
+  -d \
+  --name central-prometheus \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=central-prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
+    --web.listen-address=:9090 \
+    --web.enable-remote-write-receiver
+```
+
+---
+hideInToc: true
+---
+
+```
+# robot-prometheus.yml
+cat >robot-prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+  external_labels:
+    robot_id: robot001
+    fleet: alpha
+    site: field
+
+scrape_configs:
+  # Signal 1: "Robot is up" (local scrape; works even if WAN is down)
+  - job_name: robot-node-exporter
+    static_configs:
+      - targets: ["robot001-node-exporter:9100"]  # node_exporter on the robot
+        labels:
+          role: compute
+
+remote_write:
+  - url: "http://central-prometheus:9090/api/v1/write"
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 20
+      capacity: 5000
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```
+docker stop robot001-node-exporter
+docker stop robot001-prometheus
+docker stop central-prometheus
+```
+
+```
+docker volume rm robot-prometheus-data
+docker volume rm central-prometheus-data
+
+docker network rm monitoring
+```
+
+---
 layout: section
 ---
 
