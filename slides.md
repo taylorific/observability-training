@@ -1127,6 +1127,7 @@ hideInToc: true
 ---
 
 If the internet link is flaky, you want two complementary signals:
+
 	1.	“Is the robot itself up?” (local liveness)
 	2.	“Can I reach it right now?” (end-to-end reachability)
 
@@ -1241,10 +1242,6 @@ Use a multi-stage approach:
   - Critical: unreachable for 30–60 minutes
   - Info: reboot detected (boot time changed)
   - Correlate: if robot reports uplink loss at same time, downgrade severity
-
----
-hideInToc: true
----
 
 ---
 layout: section
