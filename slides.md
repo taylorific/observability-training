@@ -731,7 +731,7 @@ EOF
 ```
 
 ---
-layout: section
+hideInToc: true
 ---
 
 So what changed in this new config?
@@ -755,7 +755,7 @@ params:
 ```
 
 ---
-layout: section
+hideInToc: true
 ---
 
 This lets us include multiple targets under `static_configs` instead of just one:
@@ -777,7 +777,7 @@ static_configs:
 ```
 
 ---
-layout: section
+hideInToc: true
 ---
 
 And now we have a bunch of new relabeling rules under `relabel_configs`:
@@ -793,7 +793,7 @@ relabel_configs:
 ```
 
 ---
-layout: section
+hideInToc: true
 ---
 
 Before applying the relabeling rules, the request Prometheus would make would look like: `http://prometheus.io/probe?modules=http_2xx`.
@@ -805,7 +805,7 @@ This comes from `targets` and write them to a new label called `__param_target`.
 After this our imagined Prometheus request URI has now a target parameter: "http://prometheus.io/probe?target=http://prometheus.io&module=http_2xx".
 
 ---
-layout: section
+hideInToc: true
 ---
 
 First we take the values from the label __address__ (which contain the values from targets) and write them to a new label __param_target which will add a parameter target to the Prometheus scrape requests:
@@ -830,7 +830,7 @@ This relabel config won't change the request, but the metrics that come back fro
 This lets us determine which host was probed.
 
 ---
-layout: section
+hideInToc: true
 ---
 
 And finally, we write the value `blackbox-exporter:9115` to the label `__address__` (now that we have
@@ -853,7 +853,7 @@ relabel_configs:
 ```
 
 ---
-layout: section
+hideInToc: true
 ---
 
 ```
@@ -883,7 +883,7 @@ EOF
 ```
 
 ---
-layout: section
+hideInToc: true
 ---
 
 ```
@@ -916,7 +916,7 @@ to send the probe, and not the host listed in the instance (since it shouldn't h
 installed there).
 
 ---
-layout: section
+hideInToc: true
 ---
 
 ```
