@@ -1116,6 +1116,102 @@ docker container run -it --rm \
 layout: section
 ---
 
+# Remote write
+
+<br>
+<br>
+<Link to="toc" title="Table of Contents"/>
+
+---
+hideInToc: true
+---
+
+```
+cat >server-prometheus.yml <<EOF
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'prometheus-server-self'
+    static_configs:
+    - targets: ['localhost:9090']
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```
+cat >client-prometheus.yml <<EOF
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+  external_labels:
+    source: client
+
+scrape_configs:
+  - job_name: 'prometheus-client-self'
+    static_configs:
+    - targets: ['localhost:9090']
+
+remote_write:
+  - url: http://prometheus-server:9090/api/v1/write
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```
+docker volume create client-prometheus-data
+docker volume create server-prometheus-data
+
+docker network create monitoring
+```
+
+```
+docker container run -it --rm \
+  -d \
+  --name prometheus-server \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/server-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=server-prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
+    --web.enable-remote-write-receiver
+```
+
+```
+docker container run -it --rm \
+  --name prometheus-client \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/client-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=client-prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus
+```
+
+---
+hideInToc: true
+---
+
+```
+docker volume rm client-prometheus-data
+docker volume rm server-prometheus-data
+
+docker network rm monitoring
+```
+
+---
+layout: section
+---
+
 # Prometheus robot fleet dashboard with flaky networks
 
 <br>
