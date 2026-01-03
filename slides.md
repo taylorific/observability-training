@@ -1126,14 +1126,28 @@ layout: section
 hideInToc: true
 ---
 
+# What is remote write
+
+Remote write lets you send time series data to a remote system.
+
+---
+hideInToc: true
+---
+
+# Why not use remote write for everything
+
+---
+hideInToc: true
+---
+
 ```
-cat >server-prometheus.yml <<EOF
+cat >central-prometheus.yml <<EOF
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
 
 scrape_configs:
-  - job_name: 'prometheus-server-self'
+  - job_name: 'central-prometheus-self'
     static_configs:
     - targets: ['localhost:9090']
 EOF
@@ -1152,12 +1166,12 @@ global:
     source: client
 
 scrape_configs:
-  - job_name: 'prometheus-client-self'
+  - job_name: 'client-prometheus-self'
     static_configs:
-    - targets: ['localhost:9090']
+    - targets: ['localhost:9091']
 
 remote_write:
-  - url: http://prometheus-server:9090/api/v1/write
+  - url: http://central-prometheus:9090/api/v1/write
 EOF
 ```
 
@@ -1167,7 +1181,7 @@ hideInToc: true
 
 ```
 docker volume create client-prometheus-data
-docker volume create server-prometheus-data
+docker volume create central-prometheus-data
 
 docker network create monitoring
 ```
@@ -1175,26 +1189,47 @@ docker network create monitoring
 ```
 docker container run -it --rm \
   -d \
-  --name prometheus-server \
+  --name central-prometheus \
   -p 9090:9090 \
   --network monitoring \
-  --mount type=bind,source="$(pwd)/server-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
-  --mount type=volume,source=server-prometheus-data,target=/prometheus,volume-driver=local \
+  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=central-prometheus-data,target=/prometheus,volume-driver=local \
   docker.io/boxcutter/prometheus \
     --config.file=/etc/prometheus/prometheus.yml \
     --storage.tsdb.path=/prometheus \
+	--web.listen-address=:9090 \
     --web.enable-remote-write-receiver
 ```
 
 ```
 docker container run -it --rm \
   --name prometheus-client \
+   -p 9091:9091 \
   --network monitoring \
   --mount type=bind,source="$(pwd)/client-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
   --mount type=volume,source=client-prometheus-data,target=/prometheus,volume-driver=local \
   docker.io/boxcutter/prometheus \
     --config.file=/etc/prometheus/prometheus.yml \
-    --storage.tsdb.path=/prometheus
+    --storage.tsdb.path=/prometheus \
+    --web.listen-address=:9091
+```
+
+---
+hideInToc: true
+---
+
+Should see remote_write messages (and errors) in the log:
+
+```
+time=2026-01-03T23:31:40.024Z level=INFO source=watcher.go:292 msg="Replaying WAL" component=remote remote_name=7f0bb5 url=http://central-prometheus:9090/api/v1/write queue=7f0bb5
+time=2026-01-03T23:31:45.057Z level=INFO source=watcher.go:538 msg="Done replaying WAL" component=remote remote_name=7f0bb5 url=http://central-prometheus:9090/api/v1/write duration=5.032317753s
+```
+
+Prometheus collects metrics starting with `prometheus_remote_storage_*`
+Visit the client promtheus at http://localhost:9091
+
+```
+rate(prometheus_remote_storage_samples_total{job="client-prometheus-self"}[5m])
 ```
 
 ---
