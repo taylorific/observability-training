@@ -1141,6 +1141,17 @@ hideInToc: true
 ---
 
 ```
+docker volume create client-prometheus-data
+docker volume create central-prometheus-data
+
+docker network create monitoring
+```
+
+---
+hideInToc: true
+---
+
+```
 cat >central-prometheus.yml <<EOF
 global:
   scrape_interval: 5s
@@ -1148,9 +1159,26 @@ global:
 
 scrape_configs:
   - job_name: 'central-prometheus-self'
-    static_configs:
-    - targets: ['localhost:9090']
 EOF
+```
+
+---
+hideInToc: true
+---
+
+```
+docker container run -it --rm \
+  -d \
+  --name central-prometheus \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=central-prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
+	--web.listen-address=:9090 \
+    --web.enable-remote-write-receiver
 ```
 
 ---
@@ -1178,28 +1206,6 @@ EOF
 ---
 hideInToc: true
 ---
-
-```
-docker volume create client-prometheus-data
-docker volume create central-prometheus-data
-
-docker network create monitoring
-```
-
-```
-docker container run -it --rm \
-  -d \
-  --name central-prometheus \
-  -p 9090:9090 \
-  --network monitoring \
-  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
-  --mount type=volume,source=central-prometheus-data,target=/prometheus,volume-driver=local \
-  docker.io/boxcutter/prometheus \
-    --config.file=/etc/prometheus/prometheus.yml \
-    --storage.tsdb.path=/prometheus \
-	--web.listen-address=:9090 \
-    --web.enable-remote-write-receiver
-```
 
 ```
 docker container run -it --rm \
