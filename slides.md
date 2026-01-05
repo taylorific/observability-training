@@ -1141,8 +1141,8 @@ hideInToc: true
 ---
 
 ```
-docker volume create client-prometheus-data
 docker volume create central-prometheus-data
+docker volume create client-prometheus-data
 
 docker network create monitoring
 ```
@@ -1185,13 +1185,25 @@ docker container run -it --rm \
 hideInToc: true
 ---
 
+Note that the central prometheus is not scraping anything and there are no metrics:
+
+`scrape_samples_scraped`
+
+`count({__name__=~".+"})`
+
+And if you click on the triple dots in the search menu and click on "Explore metrics" there are no metric names yet.
+
+---
+hideInToc: true
+---
+
 ```
 cat >client-prometheus.yml <<EOF
 global:
   scrape_interval: 5s
   evaluation_interval: 5s
   external_labels:
-    source: client
+    source: client-prometheus
 
 scrape_configs:
   - job_name: 'client-prometheus-self'
@@ -1237,6 +1249,23 @@ Visit the client promtheus at http://localhost:9091
 ```
 rate(prometheus_remote_storage_samples_total{job="client-prometheus-self"}[5m])
 ```
+
+---
+hideInToc: true
+---
+
+Visit the central prometheus at http://localhost:9090
+
+The `up` metric should have the source label:
+
+`up{instance="localhost:9091", job="client-prometheus-self", source="client"}`
+
+---
+hideInToc: true
+---
+
+You'll definitely want to prune/minimize metrics sent to the central prometheus with
+relabeling to just the essential ones you want in the central prometheus.
 
 ---
 hideInToc: true
