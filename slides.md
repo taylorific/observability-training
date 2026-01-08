@@ -1423,6 +1423,47 @@ docker network create monitoring
 hideInToc: true
 ---
 
+```
+# central-prometheus.yml
+cat >central-prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+  external_labels:
+    prometheus: central
+    site: hq
+EOF
+```
+
+```bash
+docker container run -it --rm \
+  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --entrypoint promtool \
+  docker.io/boxcutter/prometheus check config prometheus.yml
+```
+
+---
+hideInToc: true
+---
+
+```
+docker container run -it --rm \
+  -d \
+  --name central-prometheus \
+  -p 9090:9090 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/central-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=volume,source=central-prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
+    --web.listen-address=:9090 \
+    --web.enable-remote-write-receiver
+```
+
+---
+hideInToc: true
+---
+
 ```bash
 docker container run -it --rm \
   -d \
@@ -1453,6 +1494,13 @@ scrape_configs:
       - targets: ["robot001-node-exporter:9100"]  # node_exporter on the robot
         labels:
           role: compute
+
+remote_write:
+  - url: http://central-prometheus:9090/api/v1/write
+    queue_config:
+      max_samples_per_send: 1000
+      max_shards: 20
+      capacity: 5000
 EOF
 ```
 
@@ -1480,6 +1528,175 @@ docker container run -it --rm \
     --storage.tsdb.path=/prometheus \
     --web.listen-address=:9091
 ```
+
+---
+hideInToc: true
+---
+
+Go to the central-prometheus on http://localhost:9090/
+
+All the metrics come from the robot via remote_write
+
+```
+node_memory_MemAvailable_bytes
+```
+
+```
+node_memory_MemAvailable_bytes{fleet="alpha", instance="robot001-node-exporter:9100", job="robot-node-exporter", robot_id="robot001", role="compute", site="field"}	7451455488
+```
+
+---
+hideInToc: true
+---
+
+On a non-flakey network, you'd just query `up{job="robot-node-exporter"}`
+
+```
+up{fleet="alpha", instance="robot001-node-exporter:9100", job="robot-node-exporter", robot_id="robot001", role="compute", site="field"}
+```
+
+---
+hideInToc: true
+---
+
+# 1) The simplest “robot is alive” query (fresh data present)
+
+A good "alive in the last 5 minutes" query:
+```
+max_over_time(up{job="robot-node-exporter", robot_id="robot001"}[5m])
+```
+
+Returns 1 if central has seen `up==1` at least once in the last 5 minutes
+Returns 0 if it has seen `up==0` (exporter scraped but down) and nothing 1.
+Returns **no series** if nothing arrived at all (WAN down, robot down, remote_write blocked, etc).
+
+To treat "no data" as down:
+
+```
+max_over_time(up{job="robot-node-exporter", robot_id="robot001"}[5m]) or on() vector(0)
+```
+
+---
+hideInToc: true
+---
+
+# 2) Better: measure how stale the last sample is
+
+This distinguishes "robot/exporter down" from "no remote_write data arriving":
+
+```
+time() - max(timestamp(up{job="robot-node-exporter", robot_id="robot001"}))
+```
+
+Small number - central is receiving fresh samples (<30s)
+Large number - data stopped arriving (WAN down, robot down, robote_write queue jammed, central receiver issue)
+
+A simple boolean “alive within 90s”:
+
+```
+(time() - max(timestamp(up{job="robot-node-exporter", robot_id="robot001"}))) < 90
+```
+
+---
+hideInToc: true
+---
+
+# 3) Add an alert rule on central
+
+“Robot exporter not OK” (exporter reachable from robot Prometheus)
+
+```
+max_over_time(up{job="robot-node-exporter", robot_id="robot001"}[2m]) == 0
+```
+
+“Robot telemetry missing” (remote_write stopped or robot down). This is usually the true "robot missing from central" alarm.
+
+```
+(time() - max(timestamp(up{job="robot-node-exporter", robot_id="robot001"}))) > 120
+```
+
+---
+hideInToc: true
+---
+
+# 4) Optional improvement: remote-write a dedicated heartbeat
+
+Sometimes up{job="robot-node-exporter"} is fine, but you might prefer a “robot Prometheus heartbeat” series that always exists even if node_exporter changes.
+
+On the robot, add a scrape for itself:
+
+```
+- job_name: prometheus
+  static_configs:
+  - targets: ["localhost:9090"]
+```
+
+Then on central use
+
+```
+time() - max(timestamp(up{job="prometheus", robot_id="robot001"}))
+```
+
+---
+hideInToc: true
+---
+
+# Don’t run giant 180-day range queries on up directly
+
+This works, but it can be expensive if you have lots of robots/series:
+
+```
+(time() - max by (robot_id) (max_over_time(timestamp(up{job="robot-node-exporter"})[90d]))) > 86400
+```
+
+It’s scanning 90 days of raw samples per robot.
+
+Instead: record a “last_seen” series that is cheap to query long-term.
+
+---
+hideInToc: true
+---
+
+# Best practice: record a per-robot robot_last_seen gauge on central
+
+Create a recording rule on central (evaluates every, say, 1m):
+
+```
+groups:
+- name: robot-presence
+  interval: 1m
+  rules:
+  - record: robot_last_seen_seconds
+    expr: max by (robot_id, fleet, site) (timestamp(up{job="robot-node-exporter"}))
+```
+
+When robots are sending metrics, this records “the last timestamp we’ve seen up for that robot”.
+
+---
+hideInToc: true
+---
+
+When a robot disappears, this series stops updating, but the previous samples remain in TSDB until your retention window expires - exactly what you want for “weeks/months”.
+
+Now the “missing robots” query is fast and clean:
+
+Robots missing for > 7 days
+
+```
+(time() - max_over_time(robot_last_seen_seconds[365d])) > 7*24*60*60
+```
+
+Robots that have ever been seen in the last year, but are missing now (> 1 hour)
+
+```
+(
+  time() - max_over_time(robot_last_seen_seconds[365d])
+) > 3600
+```
+
+That returns one series per missing robot, value = seconds since last seen.
+
+Why max_over_time(...[365d]) here is okay: it’s now one low-rate series per robot, not millions of raw scrapes across many metrics.
 
 ---
 hideInToc: true
