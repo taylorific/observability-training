@@ -489,9 +489,8 @@ docker container run -it --rm \
   --name grafana \
   -p 3000:3000 \
   --network monitoring \
-  --env GF_SECURITY_ADMIN_USER=admin \
-  --env GF_SECURITY_ADMIN_PASSWORD=Superseekret63 \
   --env GF_AUTH_ANONYMOUS_ENABLED=true \
+  --env GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
   --mount type=volume,source=grafana-data,target=/var/lib/grafana,volume-driver=local \
   docker.io/grafana/grafana
 ```
