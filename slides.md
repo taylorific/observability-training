@@ -1533,7 +1533,7 @@ Go to the central-prometheus on http://localhost:9090/
 
 All the metrics come from the robot via remote_write
 
-```bash {copy="node_memory_MemAvailable_bytes"}
+```bash
 # node_memory_MemAvailable_bytes
 node_memory_MemAvailable_bytes{fleet="alpha", instance="robot001-node-exporter:9100",
 job="robot-node-exporter", robot_id="robot001", role="compute",
