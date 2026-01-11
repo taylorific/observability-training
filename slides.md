@@ -1497,10 +1497,6 @@ scrape_configs:
 
 remote_write:
   - url: http://central-prometheus:9090/api/v1/write
-    queue_config:
-      max_samples_per_send: 1000
-      max_shards: 20
-      capacity: 5000
 EOF
 ```
 
@@ -1537,12 +1533,11 @@ Go to the central-prometheus on http://localhost:9090/
 
 All the metrics come from the robot via remote_write
 
-```
-node_memory_MemAvailable_bytes
-```
-
-```
-node_memory_MemAvailable_bytes{fleet="alpha", instance="robot001-node-exporter:9100", job="robot-node-exporter", robot_id="robot001", role="compute", site="field"}	7451455488
+```bash {copy="node_memory_MemAvailable_bytes"}
+# node_memory_MemAvailable_bytes
+node_memory_MemAvailable_bytes{fleet="alpha", instance="robot001-node-exporter:9100",
+job="robot-node-exporter", robot_id="robot001", role="compute",
+site="field"}	7451455488
 ```
 
 ---
@@ -1552,7 +1547,8 @@ hideInToc: true
 On a non-flakey network, you'd just query `up{job="robot-node-exporter"}`
 
 ```
-up{fleet="alpha", instance="robot001-node-exporter:9100", job="robot-node-exporter", robot_id="robot001", role="compute", site="field"}
+up{fleet="alpha", instance="robot001-node-exporter:9100", job="robot-node-exporter",
+robot_id="robot001", role="compute", site="field"}
 ```
 
 ---
@@ -1697,6 +1693,68 @@ Robots that have ever been seen in the last year, but are missing now (> 1 hour)
 That returns one series per missing robot, value = seconds since last seen.
 
 Why max_over_time(...[365d]) here is okay: it’s now one low-rate series per robot, not millions of raw scrapes across many metrics.
+
+---
+hideInToc: true
+---
+
+```
+# robot-prometheus.yml
+cat >robot-prometheus.yml <<EOF
+global:
+  scrape_interval: 15s
+  external_labels:
+    robot_id: robot001
+    fleet: alpha
+    site: field
+
+rule_files:
+  - /etc/prometheus/rules/robot-presence-rule.yml
+
+scrape_configs:
+  # Signal 1: "Robot is up" (local scrape; works even if WAN is down)
+  - job_name: robot-node-exporter
+    static_configs:
+      - targets: ["robot001-node-exporter:9100"]  # node_exporter on the robot
+        labels:
+          role: compute
+
+remote_write:
+  - url: http://central-prometheus:9090/api/v1/write
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```
+# robot-presence-rule.yml
+cat >robot-presence-rule.yml <<EOF
+groups:
+- name: robot-presence
+  interval: 1m
+  rules:
+  - record: robot_last_seen_seconds
+    expr: max by (robot_id, fleet, site) (timestamp(up{job="robot-node-exporter"}))
+EOF
+```
+
+---
+hideInToc: true
+---
+
+```bash
+docker container run -it --rm \
+  --mount type=bind,source="$(pwd)/robot-prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --entrypoint promtool \
+  docker.io/boxcutter/prometheus check config prometheus.
+yml
+```
+
+```bash
+docker kill -s HUP robot001-prometheus
+```
 
 ---
 hideInToc: true
