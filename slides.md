@@ -1536,19 +1536,19 @@ All the metrics come from the robot via remote_write
 ```bash
 # node_memory_MemAvailable_bytes
 node_memory_MemAvailable_bytes{fleet="alpha", instance="robot001-node-exporter:9100",
-job="robot-node-exporter", robot_id="robot001", role="compute",
-site="field"}	7451455488
+    job="robot-node-exporter", robot_id="robot001", role="compute",
+    site="field"}	7451455488
 ```
 
 ---
 hideInToc: true
 ---
 
-On a non-flakey network, you'd just query `up{job="robot-node-exporter"}`
+On a non-flaky network, you'd just query `up{job="robot-node-exporter"}`
 
 ```
 up{fleet="alpha", instance="robot001-node-exporter:9100", job="robot-node-exporter",
-robot_id="robot001", role="compute", site="field"}
+    robot_id="robot001", role="compute", site="field"}
 ```
 
 ---
@@ -1662,7 +1662,7 @@ groups:
 - name: robot-presence
   interval: 1m
   rules:
-  - record: robot_last_seen_seconds
+  - record: robot_last_seen_timestamp_seconds
     expr: max by (robot_id, fleet, site) (timestamp(up{job="robot-node-exporter"}))
 ```
 
@@ -1679,20 +1679,28 @@ Now the “missing robots” query is fast and clean:
 Robots missing for > 7 days
 
 ```
-(time() - max_over_time(robot_last_seen_seconds[365d])) > 7*24*60*60
+(time() - max_over_time(robot_last_seen_timestamp_seconds[365d])) > 7*24*60*60
 ```
 
 Robots that have ever been seen in the last year, but are missing now (> 1 hour)
 
 ```
 (
-  time() - max_over_time(robot_last_seen_seconds[365d])
+  time() - max_over_time(robot_last_seen_timestamp_seconds[365d])
 ) > 3600
 ```
 
 That returns one series per missing robot, value = seconds since last seen.
 
 Why max_over_time(...[365d]) here is okay: it’s now one low-rate series per robot, not millions of raw scrapes across many metrics.
+
+---
+hideInToc: true
+---
+
+```bash
+docker stop robot001-prometheus
+```
 
 ---
 hideInToc: true
@@ -1709,7 +1717,7 @@ global:
     site: field
 
 rule_files:
-  - /etc/prometheus/rules/robot-presence-rule.yml
+  - rules/robot-presence-rule.yml
 
 scrape_configs:
   # Signal 1: "Robot is up" (local scrape; works even if WAN is down)
@@ -1728,14 +1736,18 @@ EOF
 hideInToc: true
 ---
 
+```bash
+mkdir -p rules
+```
+
 ```
 # robot-presence-rule.yml
-cat >robot-presence-rule.yml <<EOF
+cat >rules/robot-presence-rule.yml <<EOF
 groups:
 - name: robot-presence
   interval: 1m
   rules:
-  - record: robot_last_seen_seconds
+  - record: robot_last_seen_timestamp_seconds
     expr: max by (robot_id, fleet, site) (timestamp(up{job="robot-node-exporter"}))
 EOF
 ```
@@ -1747,14 +1759,59 @@ hideInToc: true
 ```bash
 docker container run -it --rm \
   --mount type=bind,source="$(pwd)/robot-prometheus.yml",target=/prometheus/prometheus.yml,readonly \
+  --mount type=bind,source="$(pwd)/rules/",target=/prometheus/rules/,readonly \
   --entrypoint promtool \
-  docker.io/boxcutter/prometheus check config prometheus.
-yml
+  docker.io/boxcutter/prometheus check config prometheus.yml
 ```
 
-```bash
-docker kill -s HUP robot001-prometheus
+---
+hideInToc: true
+---
+
 ```
+docker container run -it --rm \
+  -d \
+  --name robot001-prometheus \
+  -p 9091:9091 \
+  --network monitoring \
+  --mount type=bind,source="$(pwd)/robot-prometheus.yml",target=/etc/prometheus/prometheus.yml,readonly \
+  --mount type=bind,source="$(pwd)/rules/",target=/etc/prometheus/rules/,readonly \
+  --mount type=volume,source=robot-prometheus-data,target=/prometheus,volume-driver=local \
+  docker.io/boxcutter/prometheus \
+    --config.file=/etc/prometheus/prometheus.yml \
+    --storage.tsdb.path=/prometheus \
+    --web.listen-address=:9091
+```
+
+---
+hideInToc: true
+---
+
+```
+docker volume create grafana-data
+```
+```
+# https://grafana.com/docs/grafana/latest/setup-grafana/installation/docker/
+docker container run -it --rm \
+  --name grafana \
+  -p 3000:3000 \
+  --network monitoring \
+  --env GF_AUTH_ANONYMOUS_ENABLED=true \
+  --env GF_AUTH_ANONYMOUS_ORG_ROLE=Admin \
+  --mount type=volume,source=grafana-data,target=/var/lib/grafana,volume-driver=local \
+  docker.io/grafana/grafana
+```
+
+---
+hideInToc: true
+---
+
+Table panel
+- Code query: `time() - max by (robot_id, fleet, site) (robot_last_seen_timestamp_seconds)`
+- Options: Type - Instant
+- Transformations:
+  1. Labels to fields
+  2. Organize fields (rename "Value" to "Last seen age")
 
 ---
 hideInToc: true
