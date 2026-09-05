@@ -30,7 +30,7 @@ jobs:
         run: npm ci
 
       - name: Build
-        run: npm run build -- --base /observability-training
+        run: npm run build -- --base /observability-training/
 
       - uses: actions/configure-pages@v6
 
