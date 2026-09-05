@@ -1,4 +1,4 @@
-<#!-- global-top.vue -->
+<!-- global-top.vue -->
 <template>
   <Pagination
     v-if="
